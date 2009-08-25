@@ -1,0 +1,170 @@
+<?php
+
+/**
+ * Implementation of hook_menu().
+ */
+function variable_dump_menu() {
+  $items = array();
+  $items['admin/settings/variable_dump'] = array(
+    'title' => 'Variable Dump',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('variable_dump_export_form'),
+    'access arguments' => array('administer content types'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/settings/variable_dump/export'] = array(
+    'title' => 'Export',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('variable_dump_export_form'),
+    'access arguments' => array('administer content types'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/settings/variable_dump/import'] = array(
+    'title' => 'Import',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('variable_dump_import_form'),
+    'access arguments' => array('administer content types'),
+    'type' => MENU_LOCAL_TASK,
+  );  
+  return $items;
+}
+
+/**
+ * Export form.
+ */
+function variable_dump_export_form(&$form_state) {
+  $form_values = isset($form_state['values']) ? $form_state['values'] : array();
+  $step = isset($form_state['storage']['step']) ? $form_state['storage']['step'] + 1 : 1;
+  
+  $form['#step'] = $step;
+  $form['#prefix'] = t('This form will export variables from your site. The export created by this process can be copied and pasted into an install profile or .install file, or imported into another site. If you leave all options empty, you will get a dump of all the variables on your site.');
+  
+  switch ($step) {
+    case 1: // Select a content type.
+      $form['text'] = array(
+        '#title' => t('Search text'),
+        '#type' => 'textfield',
+        '#description' => t('Variable name text to search for, like the name of a module.'),
+      );
+      $form['operation'] = array(
+        '#title' => t('Operation'),
+        '#type' => 'radios',
+        '#options' => array(
+          'starts_with' => t('Starts with'), 
+          'contains' => t('Contains'), 
+          'ends_with' => t('Ends with')
+        ),
+        '#description' => t('The type of search to perform.'),
+      );
+      break;
+
+    case 2: // Display the export macro.
+      $form['export'] = variable_dump_export($form_state['values']['text'], $form_state['values']['operation']);
+      break;
+  }
+
+  if ($step < 2) {  // Omit submit button on the textarea block to display the export data.
+    $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Export'),
+    );
+  }
+
+  $form['step'] = array(
+    '#type' => 'value',
+    '#value' => $step,
+  );
+
+  return $form;  
+}
+
+function variable_dump_export_form_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+  $form_state['storage']['step'] = $form_state['values']['step'];
+}
+
+/**
+ * Export the settings.
+ */
+function variable_dump_export($text = '', $type = 'starts_with') {
+  switch ($type) {
+    case 'contains':
+      $result = db_query("SELECT * FROM {variable} WHERE name LIKE('%$text%') ORDER BY name");
+      break;
+    case 'ends_with':
+      $result = db_query("SELECT * FROM {variable} WHERE name LIKE('%$text') ORDER BY name");
+      break;
+    default:
+      $result = db_query("SELECT * FROM {variable} WHERE name LIKE('$text%') ORDER BY name");
+      break;  
+  }
+  $i = 1;
+  while ($row = db_fetch_object($result)) {
+    $value = unserialize($row->value);
+    $export .= 'variable_set('. $row->name .', '. var_export($value, true) .');';
+    $export .= "\n";
+    $i++;
+  }
+  $form = array(
+    '#title' => t('Export'),
+    '#description' => t('Copy this text into an installation profile or .install file to replicate it on another site.'),
+    '#type' => 'textarea',
+    '#default_value' => $export,
+    '#rows' => (4 * $i),
+    );
+  return $form;
+}
+
+/**
+ * Import values from cut & paste.
+ */
+function variable_dump_import_form(&$form_state) {
+  $form['import'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Paste import code here'),
+    '#description' => t('Import variables dumped from other sites by pasting the code created by the Variable Dump Export into this box. Most variables can be imported this way, but note that the import code is sanitized, so it will not be possible to import variables that contain potentially dangerous characters using this box.'),
+    '#required' => TRUE,
+    '#rows' => 20,
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Import'),
+    '#submit' => array('variable_dump_import_form_submit'),
+    '#validate' => array('variable_dump_import_form_validate'),
+  );
+  return $form;
+}
+
+/**
+ * Validate the import.
+ */
+function variable_dump_import_form_validate(&$form, &$form_state) {
+  $import = $form_state['values']['import'];
+  $import2 = variable_dump_xss($form_state['values']['import']);
+  if ($import != $import2) {
+    form_set_error('import', t('There are illegal characters in this import.'));
+  }
+}
+
+/**
+ * Import the values.
+ */
+function variable_dump_import_form_submit(&$form, &$form_state) {
+  $import = variable_dump_xss($form_state['values']['import']);
+  ob_start();
+  eval($import);
+  ob_end_clean();
+}
+
+/**
+ * Simple filter that allows '=>' to be 
+ * preserved in the import text while removing all
+ * other tags, needed so our variable_set()
+ * arrays can be imported.
+ */
+function variable_dump_xss($text) {
+  $text = filter_xss($text);
+  $text = str_replace('=&gt;', '=>', $text);
+  return $text;
+}
