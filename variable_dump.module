@@ -15,9 +15,6 @@ function variable_dump_menu() {
   );
   $items['admin/settings/variable_dump/export'] = array(
     'title' => 'Export',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('variable_dump_export_form'),
-    'access arguments' => array('administer content types'),
     'type' => MENU_DEFAULT_LOCAL_TASK,
   );
   $items['admin/settings/variable_dump/import'] = array(
@@ -26,7 +23,7 @@ function variable_dump_menu() {
     'page arguments' => array('variable_dump_import_form'),
     'access arguments' => array('administer content types'),
     'type' => MENU_LOCAL_TASK,
-  );  
+  );
   return $items;
 }
 
@@ -57,10 +54,22 @@ function variable_dump_export_form(&$form_state) {
         ),
         '#description' => t('The type of search to perform.'),
       );
+      $form['advanced'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Advanced'),
+        '#collapsible' => TRUE,
+        '#collapsed' => TRUE,
+      );
+      $form['advanced']['function'] = array(
+        '#title' => t('Function'),
+        '#type' => 'textfield',
+        '#default_value' => '',
+        '#description' => t('Optionally specify a function name.  If specified, the variables will be exported as an associative array returned by this function name.'),
+      );
       break;
 
     case 2: // Display the export macro.
-      $form['export'] = variable_dump_export($form_state['values']['text'], $form_state['values']['operation']);
+      $form['export'] = variable_dump_export($form_state['values']);
       break;
   }
 
@@ -87,7 +96,68 @@ function variable_dump_export_form_submit($form, &$form_state) {
 /**
  * Export the settings.
  */
-function variable_dump_export($text = '', $type = 'starts_with') {
+function variable_dump_export($values) {
+  $vars = _variable_dump_get_vars($values['text'], $values['operation']);
+
+  $export = $values['function'] ? _variable_dump_export_function($values['function'], $vars) : _variable_dump_export($vars);
+
+  $form = array(
+    '#title' => t('Export'),
+    '#description' => t('Copy this text into an installation profile or .install file to replicate it on another site.'),
+    '#type' => 'textarea',
+    '#default_value' => $export,
+    '#rows' => substr_count($export, "\n") + 1,
+  );
+
+  return $form;
+}
+
+/**
+ * Helper function to export a string of variables in the 'variable_set'
+ * format.
+ */
+function _variable_dump_export($vars) {
+  $export = '';
+
+  foreach($vars as $name => $value) {
+    $value = var_export($value, true);
+    $export .= "variable_set('$name', $value);\n";
+  }
+
+  return $export;
+}
+
+/**
+ * Helper function to generate the export string for a function.
+ */
+function _variable_dump_export_function($function, $vars) {
+  $function = trim(check_plain($function));
+
+  // We only want to indent lines that are already indented once.
+  $var_export = str_replace("\n  ", "\n    ", var_export($vars, TRUE));
+  // Now we need to indent the last line and add the closing semicolon.
+  $var_export = substr($var_export, 0, -1) .'  );';
+
+  // @TODO: add docblock?
+  $export = "function $function() {\n";
+  $export .= "  return $var_export\n";
+  $export .= "}\n";
+
+  return $export;
+}
+
+/**
+ * Helper function to pull all variables based on the settings.
+ *
+ * @param $text
+ *   A string of the text to search for.
+ * @param $type
+ *   A string containing the type of search to do.  Options are
+ *   'contains', 'ends_with', & 'starts_with'.
+ */
+function _variable_dump_get_vars($text, $type) {
+  $vars = array();
+
   switch ($type) {
     case 'contains':
       $result = db_query("SELECT * FROM {variable} WHERE name LIKE('%$text%') ORDER BY name");
@@ -99,21 +169,12 @@ function variable_dump_export($text = '', $type = 'starts_with') {
       $result = db_query("SELECT * FROM {variable} WHERE name LIKE('$text%') ORDER BY name");
       break;  
   }
-  $i = 1;
+
   while ($row = db_fetch_object($result)) {
-    $value = unserialize($row->value);
-    $export .= 'variable_set(\''. $row->name .'\', '. var_export($value, true) .');';
-    $export .= "\n";
-    $i++;
+    $vars[$row->name] = unserialize($row->value);
   }
-  $form = array(
-    '#title' => t('Export'),
-    '#description' => t('Copy this text into an installation profile or .install file to replicate it on another site.'),
-    '#type' => 'textarea',
-    '#default_value' => $export,
-    '#rows' => (4 * $i),
-    );
-  return $form;
+
+  return $vars;
 }
 
 /**
