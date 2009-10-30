@@ -1,4 +1,5 @@
 <?php
+// $Id$
 
 /**
  * Implementation of hook_menu().
@@ -101,7 +102,7 @@ function variable_dump_export($text = '', $type = 'starts_with') {
   $i = 1;
   while ($row = db_fetch_object($result)) {
     $value = unserialize($row->value);
-    $export .= 'variable_set('. $row->name .', '. var_export($value, true) .');';
+    $export .= 'variable_set(\''. $row->name .'\', '. var_export($value, true) .');';
     $export .= "\n";
     $i++;
   }
