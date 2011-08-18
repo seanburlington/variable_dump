@@ -1,4 +1,4 @@
 name = Variable Dump
 description = Search for and dump variables from a working site to add them to install profiles or .install files.
-core = 6.x
+core = 7.x
 

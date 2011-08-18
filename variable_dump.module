@@ -29,7 +29,7 @@ function variable_dump_menu() {
 /**
  * Export form.
  */
-function variable_dump_export_form(&$form_state) {
+function variable_dump_export_form($form, &$form_state) {
   $form_values = isset($form_state['values']) ? $form_state['values'] : array();
   $step = isset($form_state['storage']['step']) ? $form_state['storage']['step'] + 1 : 1;
   
@@ -230,8 +230,7 @@ function _variable_dump_get_vars($text, $type) {
       $result = db_query("SELECT * FROM {variable} WHERE name LIKE('$text%') ORDER BY name");
       break;  
   }
-
-  while ($row = db_fetch_object($result)) {
+  foreach ($result as $row) {
     $vars[$row->name] = unserialize($row->value);
   }
 
@@ -241,7 +240,7 @@ function _variable_dump_get_vars($text, $type) {
 /**
  * Import values from cut & paste.
  */
-function variable_dump_import_form(&$form_state) {
+function variable_dump_import_form($form_state) {
   $form['import'] = array(
     '#type' => 'textarea',
     '#title' => t('Paste import code here'),
